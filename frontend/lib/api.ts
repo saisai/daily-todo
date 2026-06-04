@@ -4,6 +4,7 @@ export interface Todo {
   id: number;
   title: string;
   description: string;
+  url: string;
   completed: boolean;
   priority: 'low' | 'medium' | 'high';
   date: string;
@@ -21,6 +22,7 @@ export interface Stats {
 export interface CreateTodoData {
   title: string;
   description?: string;
+  url?: string;
   priority?: 'low' | 'medium' | 'high';
   date?: string;
 }
@@ -28,6 +30,7 @@ export interface CreateTodoData {
 export interface UpdateTodoData {
   title?: string;
   description?: string;
+  url?: string;
   completed?: boolean;
   priority?: 'low' | 'medium' | 'high';
   date?: string;

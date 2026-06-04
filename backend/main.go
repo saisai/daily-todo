@@ -13,14 +13,14 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// Todo represents a todo item
 type Todo struct {
 	ID          int64     `json:"id"`
 	Title       string    `json:"title"`
 	Description string    `json:"description"`
+	URL         string    `json:"url"`
 	Completed   bool      `json:"completed"`
-	Priority    string    `json:"priority"` // low, medium, high
-	Date        string    `json:"date"`      // YYYY-MM-DD
+	Priority    string    `json:"priority"`
+	Date        string    `json:"date"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -28,6 +28,7 @@ type Todo struct {
 type CreateTodoRequest struct {
 	Title       string `json:"title" binding:"required"`
 	Description string `json:"description"`
+	URL         string `json:"url"`
 	Priority    string `json:"priority"`
 	Date        string `json:"date"`
 }
@@ -35,6 +36,7 @@ type CreateTodoRequest struct {
 type UpdateTodoRequest struct {
 	Title       *string `json:"title"`
 	Description *string `json:"description"`
+	URL         *string `json:"url"`
 	Completed   *bool   `json:"completed"`
 	Priority    *string `json:"priority"`
 	Date        *string `json:"date"`
@@ -49,11 +51,13 @@ func initDB() {
 		log.Fatal("Failed to open database:", err)
 	}
 
+	// Create table if not exists (initial schema)
 	createTable := `
 	CREATE TABLE IF NOT EXISTS todos (
 		id          INTEGER PRIMARY KEY AUTOINCREMENT,
 		title       TEXT NOT NULL,
 		description TEXT DEFAULT '',
+		url         TEXT DEFAULT '',
 		completed   BOOLEAN DEFAULT FALSE,
 		priority    TEXT DEFAULT 'medium',
 		date        TEXT DEFAULT '',
@@ -65,14 +69,23 @@ func initDB() {
 		log.Fatal("Failed to create table:", err)
 	}
 
+	// Migration: add url column if it doesn't exist (for existing databases)
+	_, _ = db.Exec("ALTER TABLE todos ADD COLUMN url TEXT DEFAULT ''")
+
 	fmt.Println("Database initialized successfully")
+}
+
+const selectFields = "id, title, description, url, completed, priority, date, created_at, updated_at"
+
+func scanTodo(row interface{ Scan(...interface{}) error }, t *Todo) error {
+	return row.Scan(&t.ID, &t.Title, &t.Description, &t.URL, &t.Completed, &t.Priority, &t.Date, &t.CreatedAt, &t.UpdatedAt)
 }
 
 func getTodos(c *gin.Context) {
 	date := c.Query("date")
 	completed := c.Query("completed")
 
-	query := "SELECT id, title, description, completed, priority, date, created_at, updated_at FROM todos WHERE 1=1"
+	query := "SELECT " + selectFields + " FROM todos WHERE 1=1"
 	args := []interface{}{}
 
 	if date != "" {
@@ -83,7 +96,6 @@ func getTodos(c *gin.Context) {
 		query += " AND completed = ?"
 		args = append(args, completed == "true")
 	}
-
 	query += " ORDER BY created_at DESC"
 
 	rows, err := db.Query(query, args...)
@@ -96,14 +108,12 @@ func getTodos(c *gin.Context) {
 	todos := []Todo{}
 	for rows.Next() {
 		var t Todo
-		err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.Completed, &t.Priority, &t.Date, &t.CreatedAt, &t.UpdatedAt)
-		if err != nil {
+		if err := scanTodo(rows, &t); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		todos = append(todos, t)
 	}
-
 	c.JSON(http.StatusOK, gin.H{"todos": todos, "count": len(todos)})
 }
 
@@ -113,19 +123,15 @@ func getTodo(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
 	}
-
 	var t Todo
-	err = db.QueryRow("SELECT id, title, description, completed, priority, date, created_at, updated_at FROM todos WHERE id = ?", id).
-		Scan(&t.ID, &t.Title, &t.Description, &t.Completed, &t.Priority, &t.Date, &t.CreatedAt, &t.UpdatedAt)
-	if err == sql.ErrNoRows {
+	row := db.QueryRow("SELECT "+selectFields+" FROM todos WHERE id = ?", id)
+	if err := scanTodo(row, &t); err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Todo not found"})
 		return
-	}
-	if err != nil {
+	} else if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, t)
 }
 
@@ -135,7 +141,6 @@ func createTodo(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 	if req.Priority == "" {
 		req.Priority = "medium"
 	}
@@ -144,19 +149,16 @@ func createTodo(c *gin.Context) {
 	}
 
 	result, err := db.Exec(
-		"INSERT INTO todos (title, description, priority, date) VALUES (?, ?, ?, ?)",
-		req.Title, req.Description, req.Priority, req.Date,
+		"INSERT INTO todos (title, description, url, priority, date) VALUES (?, ?, ?, ?, ?)",
+		req.Title, req.Description, req.URL, req.Priority, req.Date,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	id, _ := result.LastInsertId()
 	var t Todo
-	db.QueryRow("SELECT id, title, description, completed, priority, date, created_at, updated_at FROM todos WHERE id = ?", id).
-		Scan(&t.ID, &t.Title, &t.Description, &t.Completed, &t.Priority, &t.Date, &t.CreatedAt, &t.UpdatedAt)
-
+	scanTodo(db.QueryRow("SELECT "+selectFields+" FROM todos WHERE id = ?", id), &t)
 	c.JSON(http.StatusCreated, t)
 }
 
@@ -166,14 +168,12 @@ func updateTodo(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
 	}
-
 	var req UpdateTodoRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Build dynamic update query
 	query := "UPDATE todos SET updated_at = CURRENT_TIMESTAMP"
 	args := []interface{}{}
 
@@ -184,6 +184,10 @@ func updateTodo(c *gin.Context) {
 	if req.Description != nil {
 		query += ", description = ?"
 		args = append(args, *req.Description)
+	}
+	if req.URL != nil {
+		query += ", url = ?"
+		args = append(args, *req.URL)
 	}
 	if req.Completed != nil {
 		query += ", completed = ?"
@@ -206,7 +210,6 @@ func updateTodo(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Todo not found"})
@@ -214,9 +217,7 @@ func updateTodo(c *gin.Context) {
 	}
 
 	var t Todo
-	db.QueryRow("SELECT id, title, description, completed, priority, date, created_at, updated_at FROM todos WHERE id = ?", id).
-		Scan(&t.ID, &t.Title, &t.Description, &t.Completed, &t.Priority, &t.Date, &t.CreatedAt, &t.UpdatedAt)
-
+	scanTodo(db.QueryRow("SELECT "+selectFields+" FROM todos WHERE id = ?", id), &t)
 	c.JSON(http.StatusOK, t)
 }
 
@@ -226,19 +227,16 @@ func deleteTodo(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
 	}
-
 	result, err := db.Exec("DELETE FROM todos WHERE id = ?", id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Todo not found"})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"message": "Todo deleted successfully"})
 }
 
@@ -247,18 +245,11 @@ func getStats(c *gin.Context) {
 	if date == "" {
 		date = time.Now().Format("2006-01-02")
 	}
-
 	var total, completed, pending int
 	db.QueryRow("SELECT COUNT(*) FROM todos WHERE date = ?", date).Scan(&total)
 	db.QueryRow("SELECT COUNT(*) FROM todos WHERE date = ? AND completed = TRUE", date).Scan(&completed)
 	pending = total - completed
-
-	c.JSON(http.StatusOK, gin.H{
-		"date":      date,
-		"total":     total,
-		"completed": completed,
-		"pending":   pending,
-	})
+	c.JSON(http.StatusOK, gin.H{"date": date, "total": total, "completed": completed, "pending": pending})
 }
 
 func main() {
@@ -266,8 +257,6 @@ func main() {
 	defer db.Close()
 
 	r := gin.Default()
-
-	// CORS
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
@@ -285,10 +274,7 @@ func main() {
 		api.DELETE("/todos/:id", deleteTodo)
 		api.GET("/stats", getStats)
 	}
-
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
+	r.GET("/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
 
 	fmt.Println("Server running on http://localhost:8080")
 	r.Run(":8080")
