@@ -1,0 +1,22 @@
+{
+  "2025-06-04": [
+    {
+      "title": "Learn Go Concurrency",
+      "link": "https://go.dev/blog/concurrency",
+      "description": "Understand goroutines and channels deeply"
+    },
+    {
+      "title": "Finish Tailwind Project",
+      "link": "",
+      "description": "Complete the dashboard UI"
+    }
+  ],
+  "2025-06-05": [
+    {
+      "title": "Read Clean Architecture",
+      "link": "https://example.com/clean-arch",
+      "description": "Chapter 5 - 7"
+    }
+  ],
+  "2025-06-06": []
+}
