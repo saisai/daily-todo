@@ -1,56 +1,162 @@
 <!DOCTYPE html>
-<html lang="en" class="bg-gray-50">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Daily Todos</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
   <script>
-    tailwind.config = {
-      content: [],
-      theme: { extend: {} }
+    tailwind.config = { darkMode: 'class' }
+
+    function toggleDarkMode() {
+      document.documentElement.classList.toggle('dark');
+      localStorage.setItem('darkMode', document.documentElement.classList.contains('dark'));
+    }
+
+    if (localStorage.getItem('darkMode') === 'true' || window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      document.documentElement.classList.add('dark');
+    }
+
+    function filterTasks() {
+      const term = document.getElementById('searchInput').value.toLowerCase().trim();
+      const rows = document.querySelectorAll('.task-row');
+
+      rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = (term === '' || text.includes(term)) ? 'flex' : 'none';
+      });
+    }
+
+    function openAddModal() {
+      document.getElementById('modalTitle').textContent = 'Add New Task';
+      document.getElementById('taskForm').reset();
+      document.getElementById('taskModal').classList.remove('hidden');
+    }
+
+    function openEditModal(date, id, title, link, desc) {
+      document.getElementById('modalTitle').textContent = 'Edit Task';
+      document.getElementById('dateInput').value = date;
+      document.getElementById('taskId').value = id;
+      document.getElementById('title').value = title;
+      document.getElementById('link').value = link || '';
+      document.getElementById('description').value = desc;
+      document.getElementById('taskModal').classList.remove('hidden');
+    }
+
+    function closeModal() {
+      document.getElementById('taskModal').classList.add('hidden');
     }
   </script>
 </head>
-<body class="min-h-screen py-8 px-4">
+<body class="bg-gray-50 dark:bg-gray-950 min-h-screen py-8 px-4">
   <div class="max-w-4xl mx-auto">
-    <h1 class="text-4xl font-bold text-center mb-10 text-gray-800">📅 Daily Todos</h1>
+    <div class="flex justify-between items-center mb-8">
+      <h1 class="text-4xl font-bold">📋 Daily Todos (SQLite)</h1>
+      <button onclick="toggleDarkMode()" class="p-3 rounded-2xl bg-gray-200 dark:bg-gray-800">
+        <i class="fas fa-moon dark:hidden"></i>
+        <i class="fas fa-sun hidden dark:inline"></i>
+      </button>
+    </div>
 
-    <div class="space-y-8">
-      {{range $date, $tasks := .}}
-        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-4 font-semibold text-lg">
-            {{ $date }} 
-            <span class="text-sm font-normal opacity-75">({{len $tasks}} tasks)</span>
-          </div>
-          
-          <div class="divide-y">
-            {{range $tasks}}
-              <div class="p-6 hover:bg-gray-50 transition">
-                <div class="flex items-start gap-4">
-                  <div class="flex-1">
-                    <h3 class="font-semibold text-xl text-gray-800">{{.Title}}</h3>
-                    <p class="text-gray-600 mt-2">{{.Description}}</p>
-                    
-                    {{if .Link}}
-                    <a href="{{.Link}}" target="_blank"
-                       class="inline-flex items-center gap-2 mt-3 text-blue-600 hover:text-blue-700 font-medium text-sm">
-                      🔗 Open Link
-                    </a>
-                    {{end}}
-                  </div>
-                </div>
-              </div>
-            {{end}}
+    <div class="flex gap-3 mb-8">
+      <input 
+        type="text" 
+        id="searchInput" 
+        onkeyup="filterTasks()" 
+        placeholder="Search tasks..." 
+        class="flex-1 px-5 py-4 rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 focus:border-blue-500"
+      >
+      <button onclick="openAddModal()" 
+              class="px-8 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-medium flex items-center gap-2">
+        <i class="fas fa-plus"></i> Add Task
+      </button>
+    </div>
+
+    <div class="space-y-4">
+      {{range $date := .SortedDates}}
+        {{$tasks := index .TasksByDate $date}}
+        {{range $tasks}}
+        <div class="task-row bg-white dark:bg-gray-900 rounded-2xl p-6 flex gap-5 items-start border border-gray-100 dark:border-gray-800">
+          <input type="checkbox" 
+                 {{if .Done}}checked{{end}}
+                 form="toggle-{{.ID}}"
+                 onchange="this.form.submit()"
+                 class="mt-1 w-6 h-6 accent-blue-600">
+
+          <form id="toggle-{{.ID}}" method="post" action="/toggle" class="hidden">
+            <input type="hidden" name="id" value="{{.ID}}">
+          </form>
+
+          <div class="flex-1">
+            <div class="flex justify-between">
+              <span class="text-xs font-medium px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-full">
+                {{.Date}}
+              </span>
+              <button onclick="openEditModal('{{.Date}}','{{.ID}}','{{.Title}}','{{.Link}}','{{.Description}}')" 
+                      class="text-gray-500 hover:text-blue-600">
+                <i class="fas fa-edit"></i>
+              </button>
+            </div>
+
+            <h3 class="font-semibold text-xl mt-3 {{if .Done}}line-through text-gray-500{{end}}">
+              {{.Title}}
+            </h3>
+            <p class="text-gray-600 dark:text-gray-400 mt-2">{{.Description}}</p>
             
-            {{if eq (len $tasks) 0}}
-              <div class="p-12 text-center text-gray-400">
-                No tasks for this day
-              </div>
+            {{if .Link}}
+            <a href="{{.Link}}" target="_blank" class="text-blue-600 text-sm mt-3 block hover:underline">
+              🔗 {{.Link}}
+            </a>
             {{end}}
           </div>
         </div>
+        {{end}}
       {{end}}
+
+      {{if eq (len .SortedDates) 0}}
+        <div class="text-center py-20 text-gray-400">
+          No tasks yet. Click "Add Task" to begin.
+        </div>
+      {{end}}
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div id="taskModal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div class="bg-white dark:bg-gray-900 rounded-3xl p-8 w-full max-w-md">
+      <h2 id="modalTitle" class="text-2xl font-bold mb-6"></h2>
+      <form method="POST" action="/add" id="taskForm">
+        <input type="hidden" name="id" id="taskId">
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm mb-1">Date</label>
+            <input type="date" name="date" id="dateInput" required 
+                   class="w-full px-4 py-3 rounded-2xl border dark:bg-gray-800">
+          </div>
+          <div>
+            <label class="block text-sm mb-1">Title</label>
+            <input type="text" name="title" id="title" required 
+                   class="w-full px-4 py-3 rounded-2xl border dark:bg-gray-800">
+          </div>
+          <div>
+            <label class="block text-sm mb-1">Link (optional)</label>
+            <input type="url" name="link" id="link" 
+                   class="w-full px-4 py-3 rounded-2xl border dark:bg-gray-800">
+          </div>
+          <div>
+            <label class="block text-sm mb-1">Description</label>
+            <textarea name="description" id="description" rows="3" 
+                      class="w-full px-4 py-3 rounded-2xl border dark:bg-gray-800"></textarea>
+          </div>
+        </div>
+
+        <div class="flex gap-3 mt-8">
+          <button type="button" onclick="closeModal()" class="flex-1 py-4 border rounded-2xl">Cancel</button>
+          <button type="submit" class="flex-1 py-4 bg-blue-600 text-white rounded-2xl">Save Task</button>
+        </div>
+      </form>
     </div>
   </div>
 </body>
