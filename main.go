@@ -3,9 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"net/http"
 	"os"
-	"text/template"
+	"sort"
+	"time"
 )
 
 type Task struct {
@@ -24,6 +26,20 @@ func loadData() error {
 	return json.Unmarshal(data, &tasksByDate)
 }
 
+func getSortedDates() []string {
+	dates := make([]string, 0, len(tasksByDate))
+	for date := range tasksByDate {
+		dates = append(dates, date)
+	}
+
+	sort.Slice(dates, func(i, j int) bool {
+		t1, _ := time.Parse("2006-01-02", dates[i])
+		t2, _ := time.Parse("2006-01-02", dates[j])
+		return t1.Before(t2)
+	})
+	return dates
+}
+
 func main() {
 	if err := loadData(); err != nil {
 		fmt.Println("Error loading data:", err)
@@ -32,10 +48,15 @@ func main() {
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		tmpl := template.Must(template.ParseFiles("static/index.html"))
-		tmpl.Execute(w, tasksByDate)
+		data := struct {
+			TasksByDate map[string][]Task
+			SortedDates []string
+		}{
+			TasksByDate: tasksByDate,
+			SortedDates: getSortedDates(),
+		}
+		tmpl.Execute(w, data)
 	})
-
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
 	fmt.Println("Server running on http://localhost:8080")
 	http.ListenAndServe(":8080", nil)
